@@ -38,6 +38,47 @@ def generate_colors(num_colors):
 
     return colors
 
+def plot_trajectories(epochs, n_sat, time_dictionary, name_experiment):
+    for ep in range(epochs):
+        if ep % 20 == 0 or ep == epochs-1:
+            plt.figure(figsize=(6, 6))
+            if ep == 0:
+                for node in range(n_sat):
+                    temp_list_x = time_dictionary['sat_'+str(node)+'_x']
+                    temp_list_y = time_dictionary['sat_'+str(node)+'_y']
+
+                    plt.plot(temp_list_x[0], temp_list_y[0], 'o', color='red')
+
+            else:
+                for node in range(n_sat):
+                    plt.plot(time_dictionary['sat_'+str(node)+'_x'][:ep+1], time_dictionary['sat_'+str(node)+'_y'][:ep+1], '-', color=col_lines[int(node)], alpha=0.5)  
+                for node in range(n_sat):
+                    plt.plot(time_dictionary['sat_'+str(node)+'_x'][0], time_dictionary['sat_'+str(node)+'_y'][0], 'o', color='red')
+                for node in range(n_sat):
+                    plt.plot(time_dictionary['sat_'+str(node)+'_x'][ep], time_dictionary['sat_'+str(node)+'_y'][ep], 'X', color='blue')
+
+            plt.xlabel('X')
+            plt.ylabel('Y')
+            plt.title('step: '+str(ep))
+            plt.savefig(f'{name_experiment}\{ep}.png')
+            plt.close()
+
+    plt.figure(figsize=(8, 5))
+    plt.plot(time_dictionary['total_area'])
+    plt.xlabel('Iterations')
+    plt.ylabel('Area [m^2]')
+    plt.title('Total intersection area')
+    plt.savefig(f'{name_experiment}\history.png')
+    plt.close()
+
+    plt.figure(figsize=(8, 5))
+    plt.plot(time_dictionary['energy'])
+    plt.xlabel('Iterations')
+    plt.ylabel('Energy')
+    plt.title('Total energy system')
+    plt.savefig(f'{name_experiment}\energy.png')
+    plt.close()
+
 
 class Constellation:
     """
@@ -120,7 +161,8 @@ class Constellation:
         max_weight = max(edge_weights)
 
         for u, v, d in self.qubits_graph.edges(data=True):
-            d['weight'] = 1/(1 + np.exp(-d['weight'] / max_weight)) 
+            # d['weight'] = 1/(1 + np.exp(-d['weight'] / max_weight)) 
+            d['weight'] = d['weight'] / max_weight
 
     def get_centroid(self):
         c_x = 0
@@ -149,6 +191,7 @@ class Constellation:
         R = self.max_distance / 2
         self.max_area = (self.max_distance/2)**2 * math.pi * self.n_sat
         self.tot_area = (self.max_distance/2)**2 * math.pi * self.n_sat
+        self.total_intersection_area = 0
         for edge in self.const_graph.edges():
             d = self.const_graph.edges[edge]['weight']
             if d >= 2 * R:
@@ -158,9 +201,10 @@ class Constellation:
                 intersection_area += R**2 * math.acos((d**2 + R**2 - R**2) / (2 * d * R))
                 intersection_area -= 0.5 * math.sqrt((-d + R + R) * (d + R - R) * (d - R + R) * (d + R + R))
 
-            self.tot_area = self.tot_area - intersection_area
+            self.total_intersection_area = self.total_intersection_area + intersection_area
+            # self.tot_area = self.tot_area - intersection_area
         
-        return self.max_area - self.tot_area
+        return self.total_intersection_area # self.max_area - self.tot_area
                     
     def const_graph_comp(self):
 
@@ -209,26 +253,6 @@ class Constellation:
                 plt.plot([self.qubits_graph.nodes[node_1]['pos_x'], self.qubits_graph.nodes[node_2]['pos_x']], [self.qubits_graph.nodes[node_1]['pos_y'], self.qubits_graph.nodes[node_2]['pos_y']], color='black', linewidth=0.1)
 
         plt.show()
-
-    def draw_trajectories(self, stp):
-        if stp == 0:
-            for node, hist_list in self.hist.items():
-                x, y = zip(*hist_list)
-                plt.plot(x[0], y[0], 'o', color='red')
-        else:
-            for node, hist_list in self.hist.items():
-                x, y = zip(*hist_list)
-                plt.plot(x[:-1], y[:-1], '-', color=self.col_lines[int(node)], alpha=0.5)  
-
-            for node, hist_list in self.hist.items():
-                x, y = zip(*hist_list)
-                plt.plot(x[0], y[0], 'o', color='red')
-
-            for node, hist_list in self.hist.items():
-                x, y = zip(*hist_list)
-                plt.plot(x[-1], y[-1], 'X', color='blue')
-
-        # plt.show()
 
     def fake_bitstring_gen(self):
         return [rd.choice([0, 1]) for _ in range(self.n_sat * self.n_dir)]
@@ -306,7 +330,8 @@ class Constellation:
         max_weight = max(edge_weights)
 
         for u, v, d in self.qubits_graph.edges(data=True):
-            d['weight'] = 1/(1 + np.exp(-d['weight'] / max_weight))  
+            # d['weight'] = 1/(1 + np.exp(-d['weight'] / max_weight))  
+            d['weight'] = d['weight'] / max_weight
 
 
 def get_gauss_vale_dict(c_x, c_y, n_sat, max_distance):
@@ -343,7 +368,7 @@ def model_creation(mode, const, n_dir, constraints, gauss_vale_dict):
             terms = list()
             for dir in range(n_dir):
                 terms.append((node+"-"+str(dir), 1))
-                bqm.add_linear((node+"-"+str(dir)), gauss_vale_dict[str(idx)])
+                # bqm.add_linear((node+"-"+str(dir)), gauss_vale_dict[str(idx)])
 
             bqm.add_linear_inequality_constraint(terms=terms, lagrange_multiplier=1, lb=0, ub=(n_dir-1), label=str(idx))
 
@@ -357,12 +382,12 @@ if __name__ == '__main__':
     n_dir = 3                        # how many dicrections a satellite can perform
     min_distance = math.sqrt(n_sat)               # minimum initial distance between two satellites
     max_distance = n_sat*3.5                # maximum distance in order to have a connection
-    epochs = 10000
+    epochs = 1500
     constraints = True
     custom_const = [[0,0],  [0,25],  [0,50],
                     [25,0], [25,25], [25,50], 
                     [50,0], [50,25], [50,50]]
-    mode = 'DWave'                   # Tabu, Exact, Tree, Fake, Steepest
+    mode = 'Tabu'                   # Tabu, Exact, Tree, Fake, Steepest
     
     col_lines = generate_colors(n_sat)
 
@@ -372,11 +397,9 @@ if __name__ == '__main__':
     c_x, c_y = const.get_centroid()
     gauss_vale_dict = get_gauss_vale_dict(c_x, c_y, n_sat, max_distance)
 
-    history = list()
-
     while True:
         random_number = np.random.random_integers(low=0, high=1000)
-        name_experiment = "experiment_"+"sat_"+str(n_sat)+"_dir_"+str(n_dir)+"_max_dist_"+str(max_distance)+"_solver_"+mode+"_"+str(random_number)
+        name_experiment = str(random_number)+"_"+mode+"_sat_"+str(n_sat)+"_dir_"+str(n_dir)+"_max_dist_"+str(max_distance)
         if not os.path.exists(name_experiment):
             os.mkdir(name_experiment)
             break 
@@ -384,7 +407,11 @@ if __name__ == '__main__':
     print("Folder number: ", random_number)
 
     time_process = 0
-    time_dictionary = {'it': [], 'it_time': [], 'total_time': [], 'total_area': []}
+    time_dictionary = {'it': [], 'it_time': [], 'total_time': [], 'total_area': [], 'energy': []}
+
+    for i in range(n_sat):
+        time_dictionary['sat_'+str(i)+'_x'] = []
+        time_dictionary['sat_'+str(i)+'_y'] = []
 
     for stp in range(epochs):
 
@@ -406,7 +433,7 @@ if __name__ == '__main__':
 
         elif mode == 'DWave':
             sampler = EmbeddingComposite(DWaveSampler(token=DWAVE_API_TOKEN))
-            spl = sampler.sample(model, num_reads=25)
+            spl = sampler.sample(model, num_reads=1)
             bitstring = spl.first.sample
             energy = spl.first.energy
             delta_time = spl.info['timing']['qpu_access_time']
@@ -434,40 +461,27 @@ if __name__ == '__main__':
 
         time_process = time_process + delta_time
         tot_a = const.tot_area_covered()
-        history.append(tot_a)
         print(stp, tot_a, delta_time)
 
         time_dictionary['it'].append(stp)
         time_dictionary['it_time'].append(delta_time)
         time_dictionary['total_time'].append(time_process)
         time_dictionary['total_area'].append(tot_a)
+        time_dictionary['energy'].append(energy)
+        
+        for node in range(n_sat):
+            time_dictionary['sat_'+str(node)+'_x'].append(const.const_graph.nodes[str(node)]['pos_x'])
+            time_dictionary['sat_'+str(node)+'_y'].append(const.const_graph.nodes[str(node)]['pos_y'])
 
         const.step(bitstring)
 
-        # if stp % 200 == 0 or stp == epochs-1 or stp in [10, 20, 30, 40, 50, 75, 100, 125, 150, 175]:
-        const.draw_trajectories(stp)
-        plt.savefig(f'{name_experiment}\{stp}.png')
-        plt.close()
-        pd.DataFrame(time_dictionary).to_csv(f'{name_experiment}/time.csv')
-        plt.plot(history)
-        plt.savefig(f'{name_experiment}\history.png')
-        plt.close()
-            
-        if stp == 3500:
-            plt.plot(history)
-            plt.savefig(f'{name_experiment}\history_3500.png')
-            plt.close()
+        # plt.savefig(f'{name_experiment}\{stp}.png')
+        # plt.close()
+        pd.DataFrame(time_dictionary).to_csv(f'{name_experiment}/data.csv')
 
-        time.sleep(1)
-        # print(bitstring)
 
-    pd.DataFrame(time_dictionary).to_csv(f'{name_experiment}/time.csv')
-    plt.plot(history)
-    plt.savefig(f'{name_experiment}\history.png')
-    plt.close()
-
-    
-    # inviare il codice a Calogero
+plot_trajectories(epochs, n_sat, time_dictionary, name_experiment)
+ 
     # implementare la  {q_1: {q_2: distanza, q_3: distanza, q_4: distanza}} hash table per l'aggiornamento dei pesi (dizionario)
     # provare con 1000 satelliti quanto ci mette a risolvere il solver il problema di ottimizzazione
     # pascal (da tenere d'occhio perchè crea i processori quantistici)
